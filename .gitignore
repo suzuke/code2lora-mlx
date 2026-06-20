@@ -1,0 +1,28 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.python-version
+
+# caches
+.emb_cache/
+.DS_Store
+*.log
+
+# large artifacts — never commit (downloaded/generated at runtime)
+data/
+checkpoints_*/
+*.safetensors
+*.pt
+*.npy
+
+# verbatim third-party source (sliced from the official anonymous repo for an
+# internal parity check only) — not ours to redistribute
+official_head_torch.py
+parity_test.py
