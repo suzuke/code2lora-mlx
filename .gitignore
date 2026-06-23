@@ -21,6 +21,7 @@ checkpoints_*/
 *.safetensors
 *.pt
 *.npy
+*.npz
 
 # verbatim third-party source (sliced from the official anonymous repo for an
 # internal parity check only) — not ours to redistribute

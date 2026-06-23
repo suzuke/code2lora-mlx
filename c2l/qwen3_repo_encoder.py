@@ -25,7 +25,7 @@ MAX_FILE_BYTES = 2_000_000
 MIN_WINDOW_TOKENS = 8
 EMBED_DIM = 1024
 _SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", ".tox",
-              "build", "dist", ".mypy_cache", ".pytest_cache",
+              "build", "dist", ".mypy_cache", ".pytest_cache", "target",
               # datasets / vendored clones / checkpoints — not the repo's own source
               "data", "datasets", "vendor", "third_party", "site-packages"}
 
@@ -43,11 +43,11 @@ def _load():
     return _model, _tok
 
 
-def _iter_py(repo: Path):
+def _iter_py(repo: Path, exts=(".py",)):
     for root, dirs, files in os.walk(repo):
         dirs[:] = [d for d in dirs if d not in _SKIP_DIRS and not d.startswith(".")]
         for fn in files:
-            if fn.endswith(".py"):
+            if fn.endswith(tuple(exts)):
                 p = Path(root) / fn
                 try:
                     if p.stat().st_size <= MAX_FILE_BYTES:
@@ -88,12 +88,14 @@ def _embed_file(text, model, tok, device, batch_size=8):
     return torch.cat(chunk_vecs, dim=0).mean(dim=0).numpy()
 
 
-def encode_repo(repo_dir, verbose=True) -> np.ndarray:
+def encode_repo(repo_dir, verbose=True, exts=(".py",), max_files=None) -> np.ndarray:
     """Return the 2048-d repo_state_embedding (fp32, L2-normalized)."""
     repo = Path(repo_dir)
     model, tok = _load()
     dev = next(model.parameters()).device
-    files = list(_iter_py(repo))
+    files = list(_iter_py(repo, exts))
+    if max_files and len(files) > max_files:
+        files = files[:max_files]
     fvecs = []
     for i, p in enumerate(files):
         try:
