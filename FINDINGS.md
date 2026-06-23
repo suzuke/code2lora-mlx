@@ -7,10 +7,11 @@ An independent MLX re-implementation and audit of the released **Code2LoRA** che
 The released Code2LoRA hypernetwork — **both** the Static and the Evo (GRU) variant — exhibits
 **conditioning collapse**: it generates a **near-identical LoRA regardless of which repository
 (or commit) it is given** (cross-repo adapter cosine **0.9996**, cross-commit **0.9999**).
-The method's accuracy gains over baselines are **real**, but our direct measurements indicate
-they come from learning a **better *generic* task adapter** — **not** from the per-repository
-specialization the paper credits. The paper reports only indirect (downstream-accuracy)
-evidence and never measures adapter diversity.
+The method's accuracy gains over baselines are **real**, but our measurements indicate they come from
+a **better *generic* task adapter** rather than the per-repository specialization the paper
+credits — at least on the evaluations we could run. The paper reports only indirect
+(downstream-accuracy) evidence and never measures adapter diversity. (Conclusions narrowed after an
+adversarial review — see *Status after adversarial review*.)
 
 ## Setup
 - Faithful MLX port of the official Static head (`OfficialDirectHead`) and the Evo GRU
@@ -26,6 +27,9 @@ evidence and never measures adapter diversity.
   generated adapters **collapse to mean cosine 0.998** (min 0.979; 66% of pairs > 0.999). Distinct,
   unseen repos → near-identical adapters. (Holds even wider — over all 408 train+test repos, mean
   0.9998 — but the 51 non-training repos are the rigorous check.) Not a small-sample artifact.
+  The fairer functional metric, the effective update **ΔW = B·A**, also collapses but a touch less
+  strongly: mean cosine **0.996** (min 0.957), with a repo-specific residual ~**5%** of the
+  adapter's norm — small, but *not literally zero*.
 - Replacing every repo's adapter with the **average of the hypernetwork's outputs**
   (`avg_train`, one fixed adapter) reproduces the full model **exactly**: CE 0.377 → **0.378**,
   EM 59.4% → **59.4%** (held-out; loaded from a standalone 2.6 MB file, no encoder/hypernetwork).
@@ -36,8 +40,12 @@ evidence and never measures adapter diversity.
   **head squashes evolved states into a near-constant adapter** (cross-commit cosine **0.9999**);
   per-commit Evo = a fixed shared adapter, **+0.0pp EM**.
 
-→ Per-repo / per-commit specialization contributes **≈ 0 in every test, in both variants**.
-The collapse is in the shared **head**, downstream of a front-end that does work.
+→ On the audited eval, per-repo / per-commit specialization shows **no measurable benefit** (both
+variants), and the collapse sits in the shared **head** (the front-end works — the Evo GRU state
+does evolve). **Honest scope:** the ΔW residual is ~5%, not literally zero, and the functional
+tests here (avg==own, rank) are coarse — 8 repos, relaxed greedy EM, short targets. A small residual
+could still matter on slices we didn't probe (rare repo-specific identifiers, longer generations,
+in-support repos). See *Status after adversarial review*.
 
 ## Finding 2 — Yet the method still beats a *from-scratch* shared LoRA (via a better *generic* adapter)
 This reconciles Finding 1 with the paper (and corrects a naive "code2lora = a shared LoRA" reading):
@@ -71,14 +79,17 @@ To isolate whether the big over-parameterized architecture is itself the source,
 exact architecture (~679M: trunk + giant per-module heads, random init) end-to-end on the task,
 but fed a **FIXED input** (mean train-repo embedding — no repo variety, no conditioning). It
 reached only **EM ~40%** (flat across all 3 epochs) — *worse* than a directly-trained shared LoRA
-(~47%), barely above base. So the over-parameterized architecture, on its own, does **not** produce
-a better adapter. By elimination, the hypernetwork's +12pp comes from **training on ~600 varied
-repositories** — input diversity acting as regularization/augmentation toward a robust generic
-adapter — not from the architecture and not from per-repo conditioning.
+(~47%), barely above base. So the over-parameterized architecture, fed a fixed input, does not on
+its own produce a better adapter. **Leading hypothesis (NOT proven):** the +12pp comes from training
+on ~600 varied repos (diversity as regularization). **Caveat — this is not a clean isolation:** the
+fixed-input test confounds "no diversity" with "hard to optimize a 680M generator from scratch under
+this recipe," and changes several factors at once. The true cause — output constraints (tanh +
+clamped scale), input diversity, the contrastive (CR) loss, or over-parameterized optimization —
+needs a *factorial* ablation, not done here.
 
-→ **Full picture:** Code2LoRA's real value is "train on many diverse repos → distill one robust
-generic adapter." Both of its headline mechanisms — per-repo *conditioning* (Finding 1) and the
-large hypernetwork *architecture* (Finding 3) — are, empirically, not where the benefit comes from.
+→ **Working picture:** Code2LoRA's measured benefit is largely reproduced by one robust generic
+adapter; its headline *conditioning* shows little measurable effect on this eval, and the
+*architecture* alone is not the source of the generic-adapter quality (cause still open).
 
 ## Reconciliation with the paper
 - The paper's accuracy gains are real; we do not dispute them.
@@ -86,19 +97,47 @@ large hypernetwork *architecture* (Finding 3) — are, empirically, not where th
   (downstream EM) and **never measures adapter diversity**; the limitations section discusses
   parameter count, not conditioning.
 - Our direct measurements (adapter cosine, average-adapter ablation, own-vs-other rank, Evo
-  cross-commit) show the per-repo/commit signal is **≈ absent** → the credited mechanism is most
-  likely **mis-attributed**: a better generic adapter, not conditioning on the repository.
+  cross-commit) show the per-repo/commit signal is **weak on this evaluation** → the credited
+  mechanism is most likely **mis-attributed** (a better generic adapter, not repo conditioning) —
+  modulo the ~5% residual a finer functional test still needs to rule out (*Status*).
 
 ## Caveats (scope, stated honestly)
-- 8 held-out repos, our metrics, Qwen2.5-Coder-1.5B; the paper uses 52 `cr_test` repos. Small
-  sample — but cosine 0.9996/0.9999 makes "underpowered" an unlikely explanation; the variation
-  simply isn't there.
-- `avg_train` and the Evo "shared" baseline are centroids of the hypernetwork's **own** outputs
-  (transductive), i.e. they establish "Code2LoRA ≈ its own mean," not the paper's baseline.
-- Cosine reported on the A-stack; B independently checked (collapses equally, 0.99964).
-- We trained a proper static shared LoRA (above) and it matched the paper's 47.4% baseline,
-  confirming the static +16.4pp gap is real. We did **not** retrain a shared LoRA on the
-  *evolution* data, so the Evo +5.2pp is still taken as given.
+- The **geometric** evidence (adapter cosine) is broad: 51 non-training repos. But the **functional**
+  evidence (avg==own, rank test) is narrow & coarse: 8 repos, relaxed greedy EM, short targets,
+  PER_EM≈8. So "geometric collapse" is solid; "no functional per-repo benefit" is only established
+  on this coarse slice.
+- `avg_train` / the Evo "shared" baseline are centroids of the hypernetwork's **own** outputs
+  (transductive) — they show "Code2LoRA ≈ its own mean," not a comparison to an independent baseline.
+- Cosine on the A-stack; B and the effective ΔW=B·A independently checked (also collapse; ΔW residual ~5%).
+- Our "proper" shared LoRA used seq-len 640 and our recipe; it *matches* the paper's 47.4% baseline,
+  which is suggestive of saturation but is **not** an exact-paper (seq 2048, official harness) run.
+- The benchmark (test-assertion completion) may be **weakly conditional** — prefixes/idioms may make
+  the repo embedding mostly nuisance — so collapse here need not imply the mechanism is useless on
+  tasks that genuinely require repo memory.
+- A **Bayesian-shrinkage** reading is possible: maybe conditioning is real in-support and correctly
+  shrinks to the population mean for far-from-support held-out repos. Counter-evidence: the collapse
+  also holds over 400 **training** repos (cosine 0.9998), but that's still geometric — the functional
+  in-support own-vs-other test is not done.
+
+## Status after adversarial review
+An independent skeptical agent (codex) attacked these conclusions and ran its own ΔW check. After
+that pass, the **defensible claim** is the narrower one:
+
+> *For the released checkpoints, on the audited cr_test assertion-completion evaluation, most of the
+> measured benefit is reproduced by the hypernetwork's population-mean adapter, and evidence for
+> useful held-out repo-specific conditioning is weak. The paper credits per-repo specialization but
+> never measures adapter diversity.*
+
+Demoted to **open hypotheses** (not yet proven): "per-repo customization contributes ≈0" (needs
+full-distribution functional testing) and "the generic-adapter advantage comes from varied-repo
+training, by elimination" (needs a factorial cause ablation).
+
+**The single experiment most likely to overturn the central claim** (per the adversarial review):
+a **λ-residual functional test** — build `avg + λ·(own − avg)` for λ∈{0,0.5,1,2,4,8} (with
+`random-other` as control), score target-token NLL / logit-rank (not just EM), stratified by rare
+identifiers / target length / in-support-vs-OOD / embedding distance. If λ>1 helps any pre-declared
+stratum while λ=1 is flat, the released checkpoint *does* contain a repo-conditioned direction the
+head under-amplifies — which would break "collapse ⇒ no conditioning."
 
 ## Open question
 The interesting problem is not Code2LoRA as shipped, but **why the head collapses the
