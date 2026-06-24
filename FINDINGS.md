@@ -98,8 +98,10 @@ adapter; its headline *conditioning* shows little measurable effect on this eval
   parameter count, not conditioning.
 - Our direct measurements (adapter cosine, average-adapter ablation, own-vs-other rank, Evo
   cross-commit) show the per-repo/commit signal is **weak on this evaluation** → the credited
-  mechanism is most likely **mis-attributed** (a better generic adapter, not repo conditioning) —
-  modulo the ~5% residual a finer functional test still needs to rule out (*Status*).
+  mechanism is most likely **mis-attributed** (a better generic adapter, not repo conditioning).
+  The small residual that the geometry left open has now been **functionally ruled out**: amplifying
+  each repo's `own−avg` residual (λ up to 8×) helps no stratum, and a wrong-repo residual helps just as
+  much — so the residual carries no repo-specific function (*Status → λ-residual functional test*).
 
 ## Caveats (scope, stated honestly)
 - The **geometric** evidence (adapter cosine) is broad: 51 non-training repos. But the **functional**
@@ -128,16 +130,60 @@ that pass, the **defensible claim** is the narrower one:
 > useful held-out repo-specific conditioning is weak. The paper credits per-repo specialization but
 > never measures adapter diversity.*
 
-Demoted to **open hypotheses** (not yet proven): "per-repo customization contributes ≈0" (needs
-full-distribution functional testing) and "the generic-adapter advantage comes from varied-repo
-training, by elimination" (needs a factorial cause ablation).
+Of the two hypotheses previously demoted to **open**: "per-repo customization contributes ≈0" is now
+**supported on the audited eval** by the functional λ-residual test below (was: "needs full-distribution
+functional testing"); "the generic-adapter advantage comes from varied-repo training, by elimination"
+remains **open** (still needs a factorial cause ablation).
 
-**The single experiment most likely to overturn the central claim** (per the adversarial review):
-a **λ-residual functional test** — build `avg + λ·(own − avg)` for λ∈{0,0.5,1,2,4,8} (with
-`random-other` as control), score target-token NLL / logit-rank (not just EM), stratified by rare
-identifiers / target length / in-support-vs-OOD / embedding distance. If λ>1 helps any pre-declared
-stratum while λ=1 is flat, the released checkpoint *does* contain a repo-conditioned direction the
-head under-amplifies — which would break "collapse ⇒ no conditioning."
+**The single experiment most likely to overturn the central claim** (per the adversarial review)
+was a **λ-residual functional test** — build `avg + λ·(own − avg)` for λ∈{0,0.5,1,2,4,8} (with
+`random-other` as control), score target-token NLL / first-token logit-rank, stratified. If λ>1
+helped any pre-declared stratum while λ=1 was flat, the released checkpoint would contain a
+repo-conditioned direction the head under-amplifies — breaking "collapse ⇒ no conditioning."
+
+**RESULT (`lambda_residual.py`, 8 held-out cr_test repos, 410 examples, official `code2lora-direct`):
+the residual is functionally dead — the claim is *strengthened*, not overturned.**
+- The population-mean (λ=0) adapter delivers essentially all the benefit: base NLL **1.411 →
+  avg 0.376 (−1.035)**. The per-repo residual is tiny to begin with: mean `‖own−avg‖/‖own‖` = **0.016**.
+- **`own` residual helps NO stratum at any λ** — every 95% bootstrap CI straddles 0 (ALL, target-in/out-of-prefix,
+  short/long target); the largest effect anywhere is **≤0.007 NLL ≈ <1 %** of the generic adapter's −1.035,
+  and λ=8 (8× amplification) trends *positive* (slightly hurts). The "under-amplified real direction" flip did **not** occur.
+- **Control clinches it:** the wrong-repo (`random-other`) residual helps *as often as or more than* `own`
+  (a few λ=1–2 CIs reach −0.003…−0.007). So the trace gain is **generic residual magnitude, not repo signal** —
+  exactly the falsification the review predicted. Gold first-token rank is identical (avg 14.7 vs own@1 14.5).
+
+This is a *functional* in-support test (NLL + logit-rank, not just geometry), with a proper wrong-repo control —
+closing the gap the adversarial review flagged. It promotes the former open hypothesis
+*"per-repo customization contributes ≈0"* from "open" to **supported on the audited eval**: on the released
+checkpoint, the per-repo conditioning direction is functionally negligible and not repo-specific.
+
+**Robustness follow-ups (`lambda_residual_hardness.py`, `lambda_followups.py`) — the verdict survives every
+attack the reviewer raised; `own` stays flat under all four.**
+1. **Saturation/hardness.** 41 % of examples already have avg NLL≈0 (a floor). Re-stratifying on hardness
+   (avg NLL>0.5, >1.0) does **not** wake `own` up — every CI still straddles 0 — while wrong-repo `other`
+   *significantly helps* on the hard slice (NLL>1.0: λ=1,2,4,8 all CI<0, −0.014…−0.052). Removing the floor
+   makes the clincher stronger, not weaker.
+2. **Embedding provenance** (the one thing that could make it a false negative). The `repo_state_embedding`
+   we fed is **byte-identical** (max|Δ|=0 over 200 keys) to the static/snapshots dataset copy — i.e. exactly the
+   conditioning input the *direct* checkpoint's own dataset ships (the only other 2048-d embedding,
+   `diff_embedding`, belongs to the Evo/GRU variant). Feeding `diff_embedding` instead yields a *worse* generic
+   adapter (0.408 vs 0.376) and `own_diff` ≈ `avg_diff` (residual still dead) — no embedding variant resurrects it.
+3. **ΔW-space (SVD) λ blend** — removes the factor-space bilinear-cross-term confound (`Dλ=D_avg+λ(D_own−D_avg)`,
+   SVD back to rank-16; sanity: ΔW-SVD own@1=0.3753 ≈ factor own@1=0.3755). `own` is **flat at every λ** in clean
+   ΔW space too; `other` again helps more (λ=1,2,4 CI<0). The "under-amplified direction" escape hatch is closed.
+4. **Robust wrong-repo null** — replacing the single deterministic next-repo control with **all 7 wrong repos**:
+   `own` beats only **38 % (λ=1) / 25 % (λ=4)** of wrong repos, i.e. it sits *below* the wrong-repo median ΔNLL.
+   The residual is not merely dead — it is no more repo-specific than a randomly chosen wrong repo's residual.
+
+Net: across factor- and ΔW-space, hardness slices, the canonical vs the alternative embedding, and a robust
+7-way wrong-repo null, the released static checkpoint's held-out per-repo residual is **functionally dead on
+this benchmark** — meeting the reviewer's pre-stated bar. The independent skeptical agent (codex) re-ran the
+artifacts and returned a final **VERIFIED** on exactly this scoped claim (it also judged the `N_TRAIN=150` vs
+full-400 centroid choice immaterial here, since `own@1` is the released adapter itself and is flat, and the
+all-wrong-repo test shares the same baseline). **Scope boundaries that must stay attached** (do not broaden
+without separately running them): (1) the audited set is **8 repos / 410 examples**, not the full 51 cr_test;
+(2) the benchmark is short **assertion-completion** and may be weakly conditional; (3) **train / in-support**
+functionality is untested; (4) the **Evo (GRU)** variant must not inherit this static verdict automatically.
 
 ## Open question
 The interesting problem is not Code2LoRA as shipped, but **why the head collapses the
@@ -153,6 +199,9 @@ PYTHONPATH=. uv run --with torch python analyze_official.py     # cross-repo ada
 PYTHONPATH=. uv run --with torch python repo_match_test.py      # own-repo rank 4.60/8 (≈random)
 PYTHONPATH=. uv run --with torch python ablate_harder.py        # avg_train == official (CE/EM)
 PYTHONPATH=. uv run --with torch python eval_evo.py             # Evo == shared, cross-commit cosine 0.9999
+PYTHONPATH=. uv run --with torch python lambda_residual.py      # λ-residual functional test: own residual dead, control ≥ own
+PYTHONPATH=. uv run python lambda_residual_hardness.py          # hardness re-analysis: own flat even on hard slices
+PYTHONPATH=. uv run --with torch python lambda_followups.py     # provenance + ΔW-SVD + all-wrong-repo: own flat under all
 ```
 
 *Verification: code reviewed by an independent codex agent (VERIFIED); MLX↔PyTorch parity ≤2e-8.*
