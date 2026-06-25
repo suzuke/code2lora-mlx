@@ -34,10 +34,10 @@ def main():
     ap.add_argument("-e", "--epochs", type=int, default=12)
     ap.add_argument("-l", "--lr", type=float, default=1e-5)         # FIX: was 1e-4 (diverged)
     ap.add_argument("-b", "--batch-size", type=int, default=12)     # FIX: bigger for CR signal
-    ap.add_argument("--repo-embed-dim", type=int, default=768)      # 2048 for paper embeddings
-    ap.add_argument("--grad-clip", type=float, default=1.0)         # FIX: global-norm clip
-    ap.add_argument("--log-scale-l2", type=float, default=1e-3)     # FIX: scale regularization
-    ap.add_argument("--max-lora-scale", type=float, default=1.0)    # FIX: clamp exp(log_scale)
+    ap.add_argument("--repo-embed-dim", type=int, default=2048)     # official Qwen3-Embedding
+    ap.add_argument("--grad-clip", type=float, default=1.0)         # global-norm clip
+    # Official head bounds scale via init -3.5 + clamp(exp,1e-5,0.3); no log_scale L2 by default.
+    ap.add_argument("--log-scale-l2", type=float, default=0.0)
     ap.add_argument("--cr-holdout", type=float, default=0.15)
     ap.add_argument("--val-frac", type=float, default=0.04, help="in-repo val slice")
     ap.add_argument("--val-every", type=int, default=1)
@@ -71,9 +71,7 @@ def main():
     dataset.examples = dataset.examples[n_val:]
     print(f"Validation slice: {len(val_examples)} examples; train: {len(dataset)}")
 
-    cfg = HypernetworkConfig(
-        repo_embed_dim=args.repo_embed_dim, max_lora_scale=args.max_lora_scale
-    )
+    cfg = HypernetworkConfig(repo_embed_dim=args.repo_embed_dim)
 
     t = time.time()
     model, tokenizer = qwen_lora.load_base_model()
