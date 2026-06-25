@@ -85,14 +85,11 @@ def main():
     ap.add_argument("--max-eval", type=int, default=40)
     ap.add_argument("--gen-tokens", type=int, default=48)
     ap.add_argument("--gen-prompts", type=int, default=3)
-    ap.add_argument("--repo-embed-dim", type=int, default=768)
-    ap.add_argument("--max-lora-scale", type=float, default=1.0)
+    ap.add_argument("--repo-embed-dim", type=int, default=2048)
     args = ap.parse_args()
 
     print(f"Device: {mx.default_device()}")
-    cfg = HypernetworkConfig(
-        repo_embed_dim=args.repo_embed_dim, max_lora_scale=args.max_lora_scale
-    )
+    cfg = HypernetworkConfig(repo_embed_dim=args.repo_embed_dim)
 
     rows = load_heldout(args.heldout, args.repo)
     assert rows, f"no rows for repo={args.repo} in {args.heldout}"

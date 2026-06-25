@@ -20,7 +20,7 @@ ap.add_argument("--gen-tokens", type=int, default=32)
 ap.add_argument("--n", type=int, default=2)
 args = ap.parse_args()
 
-cfg = HypernetworkConfig(repo_embed_dim=args.repo_embed_dim, max_lora_scale=1.0)
+cfg = HypernetworkConfig(repo_embed_dim=args.repo_embed_dim)
 rows = [json.loads(l) for l in open(args.heldout) if l.strip()]
 rows = [r for r in rows if r["repo_id"] == args.repo][: args.n]
 emb = np.asarray(rows[0]["repo_embedding"], np.float32)
